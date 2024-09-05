@@ -42,7 +42,7 @@ def show_warning():
 # 创建主窗口
 root = tk.Tk()
 root.title('欢迎使用CMPv2.0')
-root.geometry('400x300')  # 调整窗口大小
+root.geometry('400x560')  # 调整窗口大小
 # 设置窗口图标
 if os.path.exists('icon.ico') :#判断图标文件是否存在
     root.iconbitmap('icon.ico')  
@@ -85,11 +85,9 @@ github_link = tk.Label(root, text='Github:github.com/LinMingSi/CMP', font=('微�
                        cursor='hand2')
 bilibili_link = tk.Label(root, text='作者B站：space.bilibili.com/3494369153780199', font=('微软雅黑', 8),
                          fg='blue', cursor='hand2')
-github_link.pack()
-bilibili_link.pack()
-github_link.bind('<Button-1>', lambda event: open_web("github.com/LinMingSi/CMP"))
-bilibili_link.bind('<Button-1>', lambda event: open_web("space.bilibili.com/3494369153780199"))
 
+bilibili_link.bind('<Button-1>', lambda event: open_web("space.bilibili.com/3494369153780199"))
+github_link.bind('<Button-1>', lambda event: open_web("github.com/LinMingSi/CMP"))
 
 # 添加版权声明
 copyright_label = tk.Label(
@@ -98,6 +96,8 @@ copyright_label = tk.Label(
 copyright_label.pack(
     side='bottom', fill='x', padx=5, pady=5
 )
+github_link.pack(side=tk.BOTTOM,pady=5)
+bilibili_link.pack(side=tk.BOTTOM,pady=5)
 
 root.mainloop()
 
