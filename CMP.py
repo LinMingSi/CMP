@@ -206,7 +206,7 @@ class MinecraftCleanerApp(tk.Tk):
         
         try:
             total = len(files)
-            total_size = sum(os.path.getsize(f) for f in png_files)
+            total_size = sum(os.path.getsize(f) for f in files)
             for index, file_path in enumerate(files, 1):
                 if self.cancelled:
                     break
