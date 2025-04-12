@@ -1,149 +1,287 @@
 import os
 import webbrowser
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from typing import List, Tuple
+import platform
 
 
-def remove_png_files_from_screenshot(screenshots_dir):
-    """记录screenshots文件夹中的所有.png文件并返回应当删除的文件数量和文件大小"""
-    num = 0
-    size = 0
-    remove_file = []
-    for filename in os.listdir(screenshots_dir):
-        if filename.endswith('.png'):
-            file_path = os.path.join(screenshots_dir, filename)
-            try:
-                num += 1
-                size += os.path.getsize(file_path)
-                remove_file.append(file_path)
-            except OSError as e:
-                print(f"Error accessing file {file_path}: {e}")
-    return num, size, remove_file
-
-
-def clean_folder():
-    """清理指定路径下的.minecraft文件夹中的截图"""
-    path = path_entry.get()  # 获取文件夹路径
-    if not path:
-        messagebox.showinfo(title='提示', message='未选择.minecraft文件夹路径')
-        return
-
-    if not os.path.exists(path):
-        messagebox.showerror(title="错误", message="指定的路径不存在，请重新选择！")
-        return
-
-    screenshots_dirs = set()
-    for dirpath, dirnames, _ in os.walk(path):
-        if 'screenshots' == os.path.basename(dirpath):
-            screenshots_dirs.add(dirpath)
-
-    if not screenshots_dirs:
-        messagebox.showinfo(title='提示', message='未发现截图文件夹！')
-        return
-
-    num, size, remove_file = 0, 0, []
-    for screenshots_dir in screenshots_dirs:
-        if os.path.exists(screenshots_dir):
-            d_num, d_size, d_remove_files = remove_png_files_from_screenshot(screenshots_dir)
-            num += d_num
-            size += d_size
-            remove_file.extend(d_remove_files)
-
-    if remove_file:
-        for file in remove_file:
-            try:
-                os.remove(file)
-                print(f"Deleted: {file}")
-            except OSError as e:
-                print(f"Error removing {file}: {e}")
+class MinecraftCleanerApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title('Minecraft截图清理工具 v2.1')
+        self.geometry('400x560')
+        self.cancelled = False
         
-        messagebox.showinfo(
-            title='清理完成',
-            message=f'清理完成！\n本次清理了{num}张截图\n释放了{size / 1024 / 1024:.2f}MB空间'
+        self.setup_ui()
+        self.load_icon()
+        self.setup_path_combobox()
+
+    def setup_ui(self):
+        """初始化用户界面"""
+        # 标题区域
+        tk.Label(
+            self,
+            text='欢迎使用CMPv2.1',
+            font=('宋体', 20),
+            bd=2,
+            relief='solid',
+            width=20,
+            fg='green'
+        ).pack(pady=10)
+
+        tk.Label(self, text='作者: Lin_Ming_Si', font=('宋体', 12)).pack()
+
+        # 路径选择区域
+        path_frame = tk.Frame(self)
+        path_frame.pack(pady=8, fill=tk.X, padx=10)
+
+        tk.Label(
+            path_frame,
+            text='请选择.minecraft文件夹位置：',
+            font=('微软雅黑', 10)
+        ).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=3)
+
+        self.path_entry = ttk.Combobox(
+            path_frame,
+            font=('微软雅黑', 10),
+            width=28
         )
-    else:
-        messagebox.showinfo(title='提示', message='没有可删除的截图文件！')
+        self.path_entry.grid(row=1, column=0, sticky=tk.EW, padx=(0, 5))
+
+        ttk.Button(
+            path_frame,
+            text='浏览...',
+            command=self.choose_path
+        ).grid(row=1, column=1, sticky=tk.E)
+
+        path_frame.columnconfigure(0, weight=1)
+
+        # 操作按钮
+        self.clean_btn = ttk.Button(
+            self,
+            text='开始清理',
+            command=self.start_clean_thread
+        )
+        self.clean_btn.pack(pady=15)
+
+        # 底部链接
+        self.create_link(
+            'GitHub: github.com/LinMingSi/CMP',
+            'https://github.com/LinMingSi/CMP'
+        ).pack(side=tk.BOTTOM, pady=3)
+        
+        self.create_link(
+            'Bilibili: space.bilibili.com/3494369153780199',
+            'https://space.bilibili.com/3494369153780199'
+        ).pack(side=tk.BOTTOM, pady=3)
+
+        tk.Label(
+            self,
+            text='本程序采用MIT开源协议',
+            font=('微软雅黑', 8),
+            fg='gray'
+        ).pack(side=tk.BOTTOM, pady=6)
+
+    def create_link(self, text, url):
+        """创建可点击链接"""
+        link = tk.Label(
+            self,
+            text=text,
+            font=('微软雅黑', 8),
+            fg='blue',
+            cursor='hand2'
+        )
+        link.bind('<Button-1>', lambda e: webbrowser.open(url))
+        return link
+
+    def load_icon(self):
+        """加载程序图标"""
+        if os.path.exists('icon.ico'):
+            self.iconbitmap('icon.ico')
+
+    def setup_path_history(self):
+        """初始化路径历史记录"""
+        self.path_entry['values'] = self.get_minecraft_paths() + self.load_history()
+        self.path_entry.bind('<<ComboboxSelected>>', self.on_path_selected)
+
+    def setup_path_combobox(self):
+        """初始化路径下拉框"""
+        self.path_entry['values'] = self.get_minecraft_paths()
+        self.path_entry.bind('<<ComboboxSelected>>', self.on_path_selected)
+
+    def on_path_selected(self, event):
+        """路径选择事件处理"""
+        pass
+
+    # ----------------- 核心功能 -----------------
+    def start_clean_thread(self):
+        """启动清理线程"""
+        self.cancelled = False
+        self.clean_btn.config(state=tk.DISABLED)
+        threading.Thread(target=self.clean_screenshots).start()
+
+    def clean_screenshots(self):
+        """执行清理操作"""
+        target_path = self.path_entry.get()
+        
+        if not self.validate_path(target_path):
+            self.clean_btn.config(state=tk.NORMAL)
+            return
+
+        screenshot_dirs = self.find_dirs(target_path)
+        if not screenshot_dirs:
+            messagebox.showinfo('提示', '未找到任何截图文件夹')
+            self.clean_btn.config(state=tk.NORMAL)
+            return
+
+        files_to_remove = self.collect_screenshot_files(screenshot_dirs)
+        if not files_to_remove:
+            messagebox.showinfo('提示', '未找到可清理的截图文件')
+            self.clean_btn.config(state=tk.NORMAL)
+            return
+
+        self.show_progress(files_to_remove)
+
+    def validate_path(self, path):
+        """验证目标路径"""
+        if not path:
+            messagebox.showinfo('提示', '请先选择.minecraft文件夹路径')
+            return False
+        if not os.path.exists(path):
+            messagebox.showerror('路径错误', '指定路径不存在或无法访问，请重新选择')
+            return False
+        return True
+
+    def find_dirs(self, path, dir_name="screenshots"):
+        """查找特点名称目录"""
+        try:
+            return {
+                os.path.join(root, dir_name)
+                for root, dirs, _ in os.walk(path)
+                if dir_name in dirs
+            }
+        except Exception as e:
+            messagebox.showerror('扫描错误', f'无法扫描目录: {str(e)}')
+            return set()
+
+    def limited_depth_find_dirs(self, path, dir_name="screenshots", max_depth=3):
+        """有限深度目录搜索"""
+        found = set()
+        try:
+            for root, dirs, _ in os.walk(path):
+                current_depth = root[len(path):].count(os.sep)
+                if current_depth >= max_depth:
+                    del dirs[:]  # 停止深入
+                if dir_name in dirs:
+                    found.add(os.path.join(root, dir_name))
+        except Exception as e:
+            messagebox.showerror('扫描错误', f'无法扫描目录: {str(e)}')
+            return set()
+        return found
+
+    def collect_screenshot_files(self, screenshot_dirs):
+        """收集所有截图文件"""
+        files_to_remove = []
+        for dir_path in screenshot_dirs:
+            if os.path.exists(dir_path) and self.check_permissions(dir_path):
+                files = self.collect_png_files_info(dir_path)
+                files_to_remove.extend(files)
+        return files_to_remove
+
+    def collect_png_files_info(self, directory):
+        """收集PNG文件信息"""
+        png_files = [
+            os.path.join(directory, f) 
+            for f in os.listdir(directory) 
+            if f.endswith('.png')
+        ]
+        return png_files
+
+    def show_progress(self, files):
+        """显示删除进度"""
+        progress_bar = ttk.Progressbar(self, mode='determinate')
+        progress_bar.pack(pady=8)
+        
+        try:
+            total = len(files)
+            total_size = sum(os.path.getsize(f) for f in png_files)
+            for index, file_path in enumerate(files, 1):
+                if self.cancelled:
+                    break
+                
+                try:
+                    os.remove(file_path)
+                    progress_bar['value'] = (index / total) * 100
+                    self.update()
+                except Exception as e:
+                    self.handle_deletion_error(file_path, e)
+            
+            if not self.cancelled:
+                messagebox.showinfo(
+                    '清理完成',
+                    f'成功清理 {len(files)} 个截图文件\n'
+                    f'释放空间: {total_size/1024**2:.2f}MB'
+                )
+        finally:
+            progress_bar.destroy()
+            self.clean_btn.config(state=tk.NORMAL)
+
+    def handle_deletion_error(self, file_path, error):
+        """处理删除错误"""
+        messagebox.showerror(
+            '删除失败',
+            f'无法删除文件: {os.path.basename(file_path)}\n错误: {str(error)}'
+        )
+
+    # ------------------ 工具方法 ------------------
+    def choose_path(self):
+        """选择路径"""
+        path = filedialog.askdirectory(title='请选择要清理的.minecraft文件夹')
+        if path:
+            self.path_entry.delete(0, tk.END)
+            self.path_entry.insert(0, path)
+            self.add_to_session_history(path)
+    
+    def add_to_session_history(self, path):
+        """添加路径到当前会话历史"""
+        current_values = list(self.path_entry['values'])
+        if path in current_values:
+            current_values.remove(path)
+        current_values.insert(0, path)
+        self.path_entry['values'] = current_values[:5]  # 保留最近5条
+    
+    def get_minecraft_paths(self):
+        """获取常见.minecraft路径"""
+        paths = []
+        if platform.system() == "Windows":
+            # Windows
+            paths = [os.path.join(os.getenv('APPDATA', ''), '.minecraft'),*self.limited_depth_find_dirs(os.environ['USERPROFILE'],".minecraft")]
+        elif platform.system() == "Linux":
+            # Unix路径
+            paths = [os.path.expanduser('~/.minecraft')]
+        
+        return list(set(paths))
+
+    def check_permissions(self, path):
+        """检查写入权限"""
+        if not os.access(path, os.W_OK):
+            messagebox.showerror('权限错误', '没有写入权限，请以管理员身份运行')
+            return False
+        return True
+
+    # ------------------ 确认对话框 ------------------
+    def confirm_clean_action(self):
+        """显示确认对话框"""
+        if messagebox.askyesno(
+            title="确认清理",
+            icon="warning",
+            message="即将永久删除所有截图文件，此操作不可恢复！\n\n确定要继续吗？"
+        ):
+            self.start_clean_thread()
 
 
-def show_warning():
-    """显示清理确认的警告框"""
-    warning = tk.Toplevel()
-    warning.title('警告')
-    warning.geometry('700x300')
-
-    warning_label = tk.Label(
-        warning,
-        text='注意:这将清理所有游戏截图文件夹(名为screenshots的目录)下的.png文件，无法恢复。',
-        font=('微软雅黑', 12)
-    )
-    warning_label.pack(pady=10)
-
-    confirm_button = tk.Button(
-        warning, 
-        text='我已知晓，启动清理！', 
-        font=('微软雅黑', 12), 
-        command=lambda: [warning.destroy(), clean_folder()]
-    )
-    confirm_button.pack(pady=20)
-
-    cancel_button = tk.Button(
-        warning, 
-        text='取消清理', 
-        font=('微软雅黑', 12), 
-        command=warning.destroy
-    )
-    cancel_button.pack()
-
-
-# 主窗口创建
-root = tk.Tk()
-root.title('CMPv2.0')
-root.geometry('400x560')
-
-# 设置图标
-if os.path.exists('icon.ico'):
-    root.iconbitmap('icon.ico')
-
-# 窗口内容
-title = tk.Label(root, text='欢迎使用CMPv2.0', font=('宋体', 20), bd=2, relief='solid', width=20, fg='green')
-title.pack(pady=10)
-
-author = tk.Label(root, text='作者:Lin_Ming_Si', font=('宋体', 12))
-author.pack()
-
-path_label = tk.Label(root, text='请选择要清理的.minecraft文件夹', font=('微软雅黑', 10))
-path_label.pack(pady=10)
-
-path_entry = tk.Entry(root, font=('微软雅黑', 10), width=30)
-path_entry.pack()
-
-def choose_path():
-    path = filedialog.askdirectory(title='请选择要清理的.minecraft文件夹')
-    path_entry.delete(0, tk.END)
-    path_entry.insert(0, path)
-
-path_button = tk.Button(root, text='选择路径', font=('微软雅黑', 10), command=choose_path)
-path_button.pack()
-
-clean_button = tk.Button(root, text='开始清理', font=('微软雅黑', 12), command=show_warning)
-clean_button.pack(pady=20)
-
-# 链接
-def open_web(URL):
-    webbrowser.open(URL)
-
-github_link = tk.Label(root, text='Github: github.com/LinMingSi/CMP', font=('微软雅黑', 8), fg='blue', cursor='hand2')
-bilibili_link = tk.Label(root, text='B站：space.bilibili.com/3494369153780199', font=('微软雅黑', 8), fg='blue', cursor='hand2')
-
-bilibili_link.bind('<Button-1>', lambda event: open_web("https://space.bilibili.com/3494369153780199"))
-github_link.bind('<Button-1>', lambda event: open_web("https://github.com/LinMingSi/CMP"))
-
-github_link.pack(side=tk.BOTTOM, pady=5)
-bilibili_link.pack(side=tk.BOTTOM, pady=5)
-
-# 版权声明
-copyright_label = tk.Label(root, text='本程序采用MIT开源协议', font=('微软雅黑', 8), fg='gray')
-copyright_label.pack(side='bottom', pady=5)
-
-
-root.mainloop()
+if __name__ == '__main__':
+    app = MinecraftCleanerApp()
+    app.mainloop()
