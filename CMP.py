@@ -62,7 +62,7 @@ class MinecraftCleanerApp(tk.Tk):
         self.clean_btn = ttk.Button(
             self,
             text='开始清理',
-            command=self.start_clean_thread
+            command=self.confirm_clean_action
         )
         self.clean_btn.pack(pady=15)
 
@@ -98,6 +98,7 @@ class MinecraftCleanerApp(tk.Tk):
 
     def load_icon(self):
         """加载程序图标"""
+        
         if os.path.exists('icon.ico'):
             self.iconbitmap('icon.ico')
 
@@ -141,7 +142,7 @@ class MinecraftCleanerApp(tk.Tk):
             messagebox.showinfo('提示', '未找到可清理的截图文件')
             self.clean_btn.config(state=tk.NORMAL)
             return
-
+        self.clean_btn.config(text='正在清理...')
         self.show_progress(files_to_remove)
 
     def validate_path(self, path):
@@ -198,42 +199,71 @@ class MinecraftCleanerApp(tk.Tk):
             if f.endswith('.png')
         ]
         return png_files
+    def cancel(self):
+        self.cancelled = True
 
     def show_progress(self, files):
         """显示删除进度"""
-        progress_bar = ttk.Progressbar(self, mode='determinate')
-        progress_bar.pack(pady=8)
-        
+        progress_frame = tk.Frame(self)
+        progress_frame.pack(padx=10, pady=10)
+        progress_bar = ttk.Progressbar(progress_frame, mode='determinate')
+        progress_bar.pack(side="left", pady=8)
+        cancel_button = tk.Button(progress_frame, text="取消", command=self.cancel)
+        cancel_button.config(width=10, state=tk.NORMAL)
+        cancel_button.pack(side="left", padx=10)
         try:
+            error_count = 0
             total = len(files)
-            total_size = sum(os.path.getsize(f) for f in png_files)
+            total_size = sum(os.path.getsize(f) for f in files)
             for index, file_path in enumerate(files, 1):
                 if self.cancelled:
                     break
-                
                 try:
                     os.remove(file_path)
-                    progress_bar['value'] = (index / total) * 100
-                    self.update()
                 except Exception as e:
                     self.handle_deletion_error(file_path, e)
+                    error_count+=1
+                    total_size-=os.path.getsize(file_path)
+                finally:
+                    progress_bar['value'] = (index / total) * 100
+                    self.update()
+                    
             
             if not self.cancelled:
+                if error_count > 0:
+                    messagebox.showinfo(
+                        '清理完成',
+                        f'成功清理 {len(files)-error_count} 张截图文件\n'
+                        f'释放空间: {total_size/1024**2:.2f}MB\n'
+                        f'删除失败: {error_count} 张截图文件'
+                    )
+                else:
+                    messagebox.showinfo(
+                        '清理完成',
+                        f'成功清理 {len(files)} 张截图文件\n'
+                        f'释放空间: {total_size/1024**2:.2f}MB'
+                    )
+            else:
                 messagebox.showinfo(
-                    '清理完成',
-                    f'成功清理 {len(files)} 个截图文件\n'
-                    f'释放空间: {total_size/1024**2:.2f}MB'
-                )
+                    '提示',
+                    '清理操作已取消'
+                    f'{progress_bar['value']:.2f}%的截图文件被删除\n'
+                    )
         finally:
-            progress_bar.destroy()
-            self.clean_btn.config(state=tk.NORMAL)
+            progress_frame.destroy()
+            self.clean_btn.config(text="开始清理", state=tk.NORMAL)
 
     def handle_deletion_error(self, file_path, error):
         """处理删除错误"""
-        messagebox.showerror(
-            '删除失败',
-            f'无法删除文件: {os.path.basename(file_path)}\n错误: {str(error)}'
-        )
+        if self.cancelled:
+            return
+        if os.path.exists(file_path):
+            messagebox.showerror(
+                '删除失败',
+                f'无法删除文件: {os.path.basename(file_path)}\n错误: {str(error)}'
+            )
+        else:
+            return
 
     # ------------------ 工具方法 ------------------
     def choose_path(self):
