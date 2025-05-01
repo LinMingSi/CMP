@@ -41,4 +41,6 @@ CMP就是来解决这个问题的！
 暂无
 
 ## 鸣谢
-- [771835](https://github.com/771835) - 提供了帮助与建议
+<a href="https://github.com/LinMingSi/CMP/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=LinMingSi/CMP" />
+</a>
